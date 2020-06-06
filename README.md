@@ -1,6 +1,21 @@
 # tdm
 To-do Management
 
+### 介绍
+一个分派、管理待办的工具，只需稍加配置即可接入企业微信使用。
+
+### 依赖
+* Python 3.6+
+* Vue 2.6.11
+* Nginx
+* `backend/requirements.txt`
+
+### 部署
+1. `git clone` 本项目
+2. 安装依赖
+3. 按照说明配置 `backend/config.py`
+4. 启动 `gunicorn` 和 `nginx`
+
 ### 配置文件
 需要将以下内容配置到 `backend/config.py`:
 ```
@@ -31,3 +46,7 @@ WX_ENTRYURL = r""
 # 企业微信通信录 Secret
 WX_MEMBERS_CORPSECRET = ""
 ```
+
+### todo
+* 启动脚本
+* 待办记录按照多种维度聚合并可筛选
