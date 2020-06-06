@@ -1,0 +1,3 @@
+backend/__pycache__/
+backend/gunicorn.pid
+backend/config.py

@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+  <script src="https://unpkg.com/vue/dist/vue.js"></script>
+  <script src="https://unpkg.com/element-ui/lib/index.js"></script>
+  <script src="https://cdn.staticfile.org/axios/0.18.0/axios.min.js"></script>
+  <title>待办管理</title>
+</head>
+
+<body>
+  <div id="app">
+    <el-container>
+      <el-header style="text-align: center">
+        <h1>待办管理</h1>
+      </el-header>
+
+      <el-main>
+        <el-tabs type="border-card" v-model="activeTab" @tab-click="tabClick">
+          <el-tab-pane label="创建待办" name="createTodo">
+            <el-form :model="createTodoForm" label-width="100px">
+              <el-form-item label="待办指派至">
+                <el-select v-model="createTodoForm.createTodoReceiver" filterable reserve-keyword clearable
+                  :filter-method="createTodoReceiverFilter" style="width: 100%;">
+                  <el-option v-for="item in this.createTodoForm.options" :key="item.userid" :label="item.name"
+                    :value="item.userid"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item label="期望完成时间">
+                <el-date-picker v-model="createTodoForm.createTodoExpectedFinishDatetime" type="datetime" placeholder="选择日期时间" default-time="10:00:00" style="width: 100%;">
+                </el-date-picker>
+              </el-form-item>
+              <el-form-item label="待办内容">
+                <el-input type="textarea" v-model="createTodoForm.createTodoContent"></el-input>
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" @click="submitNewTodo">创建</el-button>
+              </el-form-item>
+            </el-form>
+          </el-tab-pane>
+          <el-tab-pane label="我收到的待办" name="receivedTodo" :disabled="!Boolean(user.length)">
+            <el-collapse v-model="collapseAllReceived" @change="handleChange">
+              <el-collapse-item title="所有" name="1">
+                <el-select v-model="filterReceivedTodoBySender" multiple clearable placeholder="按人筛选"
+                  @change="filterReceivedTodoBySenderChanged">
+                  <el-option v-for="item in this.uniqueReceivedTodoSenders(this.allReceivedTodo)" :key="item.sender"
+                    :label="item.name" :value="item.sender">
+                  </el-option>
+                </el-select>
+                <el-table :data="tableAllReceivedTodo" stripe style="width: 100%" v-loading="loadingReceivedTodo"
+                  @row-dblclick="finishTodo">
+                  <el-table-column prop="colReceivedTodoVisibleExpectedFinishTime" label="期望完成时间" width="180"></el-table-column>
+                  <el-table-column prop="colReceivedTodoVisibleSender" label="指派自" width="180"></el-table-column>
+                  <el-table-column prop="content" label="内容"></el-table-column>
+                </el-table>
+              </el-collapse-item>
+            </el-collapse>
+          </el-tab-pane>
+          <el-tab-pane label="我发出的待办" name="sentTodo" :disabled="!Boolean(user.length)">
+            <el-collapse v-model="collapseAllSent" @change="handleChange">
+              <el-collapse-item title="所有" name="1">
+                <el-select v-model="filterSentTodoByReceiver" multiple clearable placeholder="按人筛选"
+                  @change="filterSentTodoByReceiverChanged">
+                  <el-option v-for="item in this.uniqueSentTodoReceivers(this.allSentTodo)" :key="item.receiver"
+                    :label="item.name" :value="item.receiver">
+                  </el-option>
+                </el-select>
+                <el-table :data="tableAllSentTodo" stripe style="width: 100%" v-loading="loadingSentTodo"
+                  @row-dblclick="deleteTodo">
+                  <el-table-column prop="colSentTodoVisibleStatus" label="状态" width="90"></el-table-column>
+                  <el-table-column prop="colSentTodoVisibleExpectedFinishTime" label="期望完成时间" width="180"></el-table-column>
+                  <el-table-column prop="colSentTodoVisibleReceiver" label="指派至" width="180"></el-table-column>
+                  <el-table-column prop="content" label="内容"></el-table-column>
+                </el-table>
+              </el-collapse-item>
+            </el-collapse>
+          </el-tab-pane>
+        </el-tabs>
+      </el-main>
+    </el-container>
+  </div>
+  <script>
+    var STORAGE_KEY = 'todolist'
+
+    function fetch() {
+      return JSON.parse(window.localStorage.getItem(STORAGE_KEY)
+        || '[]')
+    }
+    function save(items) {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
+    }
+
+    //--------------------------------------------------
+    var backendUrl = "http://todo.mobisummer-inc.com/api"
+    var mainApp = new Vue({
+      el: '#app',
+      data: {
+        backendUrl: backendUrl,
+        allMembers: "",
+        createTodoForm: {
+          createTodoReceiver: [],
+          createTodoExpectedFinishDatetime: "",
+          createTodoContent: "",
+          options: []
+        },
+        activeTab: "createTodo",
+        collapseAllReceived: ["1"],
+        collapseAllSent: ["1"],
+        tableAllReceivedTodo: [],
+        tableAllSentTodo: [],
+        allSentTodo: [],
+        allReceivedTodo: [],
+        filterSentTodoByReceiver: [],
+        filterReceivedTodoBySender: [],
+        loadingReceivedTodo: false,
+        loadingSentTodo: false,
+        queries: "",
+        user: ""
+      },
+      methods: {
+        handleChange(val) {
+        },
+        tabClick(tab, event) {
+          switch (event.target.attributes.id.nodeValue) {
+            case "tab-receivedTodo":
+              this.listReceived()
+              break
+            case "tab-sentTodo":
+              this.listSent()
+              break
+            case "tab-createTodo":
+              break
+          }
+        },
+        createTodoReceiverFilter(query) {
+          if (query !== "") {
+            this.createTodoForm.options = this.allMembers.filter(item => {
+              return ((item.userid.toLowerCase().indexOf(query.toLowerCase()) > -1) || (item.eng_name.toLowerCase().indexOf(query.toLowerCase()) > -1))
+            })
+          } else {
+            this.createTodoForm.options = this.allMembers
+          }
+        },
+        submitNewTodo() {
+          axios.post(this.backendUrl + "/add", JSON.stringify({
+            user_id: this.user,
+            sender: this.user,
+            receiver: this.createTodoForm.createTodoReceiver,
+            content: this.createTodoForm.createTodoContent,
+            start_time: this.getCurrentTime(),
+            expected_finish_time: this.createTodoForm.createTodoExpectedFinishDatetime
+          }))
+            .then(response => {
+              this.$notify.success({ title: "成功", message: "待办创建成功。" })
+              this.resetForm()
+            })
+            .catch(error => {
+              this.$notify.error({ title: "错误", message: "待办创建失败。" })
+              console.log(error)
+            })
+        },
+        filterSentTodoByReceiverChanged(event) {
+          if (event.length == 0) {
+            this.tableAllSentTodo = this.allSentTodo
+          } else {
+            this.tableAllSentTodo = this.allSentTodo.filter(item => event.indexOf(item.receiver) > -1)
+          }
+        },
+        filterReceivedTodoBySenderChanged(event) {
+          if (event.length == 0) {
+            this.tableAllReceivedTodo = this.allReceivedTodo
+          } else {
+            this.tableAllReceivedTodo = this.allReceivedTodo.filter(item => event.indexOf(item.sender) > -1)
+          }
+        },
+        listSent() {
+          this.loadingSentTodo = true
+          axios.post(this.backendUrl + "/list_sent", JSON.stringify({ user_id: this.user }))
+            .then(response => {
+              this.allSentTodo = response.data.data
+              this.tableAllSentTodo = this.allSentTodo
+              if (this.tableAllSentTodo.length > 0) {
+                for (i = 0; i < this.tableAllSentTodo.length; i++) {
+                  this.tableAllSentTodo[i].colSentTodoVisibleStatus = (this.tableAllSentTodo[i].status == 1 ? "已完成" : "未完成")
+                  this.tableAllSentTodo[i].colSentTodoVisibleReceiver = this.getChnNameByUserid(this.tableAllSentTodo[i].receiver)
+                  this.tableAllSentTodo[i].colSentTodoVisibleExpectedFinishTime = this.getVisibleLocalTime(this.tableAllSentTodo[i].expected_finish_time)
+                }
+              }
+              this.loadingSentTodo = false
+            })
+        },
+        listReceived() {
+          this.loadingReceivedTodo = true
+          axios.post(this.backendUrl + "/list_received", JSON.stringify({ user_id: this.user }))
+            .then(response => {
+              this.allReceivedTodo = response.data.data
+              this.tableAllReceivedTodo = this.allReceivedTodo
+              if (this.tableAllReceivedTodo.length > 0) {
+                for (i = 0; i < this.tableAllReceivedTodo.length; i++) {
+                  this.tableAllReceivedTodo[i].colReceivedTodoVisibleSender = this.getChnNameByUserid(this.tableAllReceivedTodo[i].sender)
+                  this.tableAllReceivedTodo[i].colReceivedTodoVisibleExpectedFinishTime = this.getVisibleLocalTime(this.tableAllReceivedTodo[i].expected_finish_time)
+                }
+              }
+              this.loadingReceivedTodo = false
+            })
+        },
+        finishTodo(row) {
+          this.loadingReceivedTodo = true
+          axios.post(this.backendUrl + "/finish", JSON.stringify({ user_id: this.user, todo_id: row._id, actual_finish_time: this.getCurrentTime() }))
+            .then(response => {
+              this.$notify.info({ title: "提示", message: "已完成待办：" + row.content })
+              this.listReceived()
+              this.loadingReceivedTodo = false
+            })
+        },
+        deleteTodo(row) {
+          if (row.status === 1) {
+            this.$notify.error({ title: "错误", message: "已完成待办不可取消。" })
+          } else {
+            this.loadingSentTodo = true
+            axios.post(this.backendUrl + "/delete", JSON.stringify({ user_id: this.user, todo_id: row._id }))
+              .then(response => {
+                this.$notify.info({ title: "提示", message: "已取消待办：" + row.content })
+                this.listSent()
+                this.loadingSentTodo = false
+              })
+          }
+        },
+        getCurrentTime() {
+          var currentTime = new Date()
+          return currentTime
+        },
+        getTomorrowTenZero() {
+          var today = new Date()
+          var tenZero = new Date()
+          tenZero.setTime(Date.parse(today) - Date.parse(today) % 86400000 + 86400000 + 7200000)
+          return tenZero
+        },
+        getVisibleLocalTime(utctime) {
+          var localTime = new Date()
+          localTime.setTime(Date.parse(new Date(utctime)) + 8 * 60 * 60 * 1000)
+          return localTime.getFullYear()+ "-" + ((localTime.getMonth() + 1) < 10 ? "0" : "") + (localTime.getMonth() + 1) + "-" + (localTime.getDate() < 10 ? "0" : "") + localTime.getDate() + " " + (localTime.getHours() < 10 ? "0" : "") + localTime.getHours() + ":" + (localTime.getMinutes() < 10 ? "0" : "") + localTime.getMinutes() + ":" + (localTime.getSeconds() < 10 ? "0" : "") + localTime.getSeconds()
+        },
+        getChnNameByUserid(userid) {
+          return this.allMembers.filter(item => { return item.userid == userid })[0].name
+        },
+        resetForm() {
+          this.createTodoForm.createTodoReceiver = ""
+          this.createTodoForm.createTodoContent = ""
+          this.createTodoForm.createTodoExpectedFinishDatetime = this.getTomorrowTenZero()
+        },
+        uniqueSentTodoReceivers(todos) {
+          tmp = {}
+          unique = todos.map(item => { return { receiver: item.receiver, name: item.colReceivedTodoVisibleReceiver } })
+          unique = unique.reduce((current, next) => {
+            tmp[next.receiver] ? "" : tmp[next.receiver] = true && current.push(next);
+            return current;
+          }, [])
+          return unique
+        },
+        uniqueReceivedTodoSenders(todos) {
+          tmp = {}
+          unique = todos.map(item => { return { sender: item.sender, name: item.colReceivedTodoVisibleSender } })
+          unique = unique.reduce((current, next) => {
+            tmp[next.sender] ? "" : tmp[next.sender] = true && current.push(next);
+            return current;
+          }, [])
+          return unique
+        }
+      },
+      computed: {
+      },
+      watch: {
+      },
+      mounted: function () {
+        this.resetForm()
+        axios.post(this.backendUrl + "/list_members", JSON.stringify({}))
+          .then(response => {
+            this.allMembers = response.data.members
+            this.createTodoForm.options = this.allMembers
+          })
+        var search = window.location.search
+        if (search) {
+          var obj = {}, arr = search.substring(1).split('&')
+          for (var i = 0; i < arr.length; i++) {
+            var subArr = arr[i].split('=')
+            var key = decodeURIComponent(subArr[0])
+            var value = decodeURIComponent(subArr[1])
+            obj[key] = value
+          }
+          this.queries = obj
+          if (this.queries.testuser) {
+            this.user = this.queries.testuser
+          }
+          if (this.queries.code) {
+            axios.post(this.backendUrl + "/usercode", JSON.stringify({ code: this.queries.code }))
+              .then(response => {
+                this.user = response.data.user_id
+              })
+              .catch(error => {
+                this.$notify.error({ title: "错误", message: "出现了一些问题。" })
+              })
+          } else {
+            this.$notify.error({ title: "错误", message: "this.queries.code is empty." })
+          }
+        }
+      }
+    })
+  </script>
+</body>
+
+</html>
