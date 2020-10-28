@@ -115,13 +115,13 @@ def list_received_todo(todo: ListToDo):
     return JSONResponse(content={"data": todos}, headers=cors_headers)
 
 
-# TODO: to check whether the todo belongs to the user_id
 @app.post("/api/delete")
 def delete_todo(todo: DeleteToDo):
     logging.info("/delete called. postdata: " + str(todo))
     mh = MongoHandler()
     mh.collection.update_one({
-        "_id": ObjectId(todo.todo_id)
+        "_id": ObjectId(todo.todo_id),
+        "sender": todo.sender
     }, {
         "$set": {
             "is_visible": False
@@ -130,13 +130,13 @@ def delete_todo(todo: DeleteToDo):
     return JSONResponse(content={"msg": "ok", "id": todo.todo_id}, headers=cors_headers)
 
 
-# TODO: to check whether the todo belongs to the user_id
 @app.post("/api/finish")
 async def finish_todo(todo: FinishToDo):
     logging.info("/finish called. postdata: " + str(todo))
     mh = MongoHandler()
     mh.collection.update_one({
-        "_id": ObjectId(todo.todo_id)
+        "_id": ObjectId(todo.todo_id),
+        "receiver": todo.receiver
     }, {
         "$set": {
             "status": 1,
